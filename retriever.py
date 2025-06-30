@@ -1,5 +1,6 @@
 import ast
 import re
+import pickle
 
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
@@ -22,7 +23,7 @@ def bm25_process_func(text):
     kiwi = Kiwi()
     return [t.form for t in kiwi.tokenize(text)]
 
-def get_retriever(embeddings, data, collection_name, data_add=True):
+def get_retriever(embeddings, data, collection_name, data_add=False):
     """ 검색기 반환 함수 """
     chroma_db = Chroma(
         collection_name=collection_name,
@@ -37,9 +38,23 @@ def get_retriever(embeddings, data, collection_name, data_add=True):
     retriever = chroma_db.as_retriever(
         search_kwargs={"k": 10}
     )
+    if data_add:
+        # 토큰화된 데이터 저장
+        tokenized_data = []
+        for row in data:
+            tokens = bm25_process_func(row)
+            tokenized_data.append(tokens)
+
+        with open(f"bm25_tokens/{collection_name}.pkl", "wb") as f:
+            pickle.dump((data, tokenized_data), f)
+
+    else:
+        with open(f"bm25_tokens/{collection_name}.pkl", "rb") as f:
+            data, tokenized_data = pickle.load(f)
+
     bm25_retriever = BM25Retriever.from_texts(
         texts=data,
-        preprocess_func=lambda x: bm25_process_func(x),
+        preprocess_func=tokenized_data,
     )
     ensemble_retriever = EnsembleRetriever(
         retrievers=[retriever, bm25_retriever], 
@@ -79,7 +94,7 @@ def get_retriever_tools(db):
     # 임베딩 모델 정의
     embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
-    # 임베딩 벡터 저장소 및 검색기 생성 - 58m 47.1s
+    # 검색기 로드
     etfs_retriever = get_retriever(embeddings, etfs_ko + etfs_en, "etfs")
     fund_managers_retriever = get_retriever(embeddings, fund_managers, "fund_managers")
     underlying_assets_retriever = get_retriever(embeddings, underlying_assets, "underlying_assets")
@@ -87,6 +102,7 @@ def get_retriever_tools(db):
     etf_summary_retriever = get_retriever(embeddings, etf_summary, "etf_summary")
     investment_warning_retriever = get_retriever(embeddings, investment_warning, "investment_warning")
 
+    # 검색기 툴 생성
     description = (
         "Use this tool to look up official ETF names in Korean or English. "
         "Input is an approximate or partial name, and the output includes valid ETF identifiers. "
@@ -142,3 +158,44 @@ def get_retriever_tools(db):
         llm=ChatOpenAI(model="gpt-4.1"),
     )
     return agent_executor
+
+if __name__ == "__main__":
+    from langchain_community.utilities import SQLDatabase
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    # 디비 연결
+    db = SQLDatabase.from_uri(
+        "sqlite:///etf_database.db",
+        include_tables=["ETFS_WITH_INFO"]
+    )
+
+    # 고유명사 작업 리스트
+    etfs_ko = query_as_list(db, "SELECT DISTINCT 종목명 FROM ETFS_WITH_INFO")
+    etfs_en = query_as_list(db, "SELECT DISTINCT 영문명 FROM ETFS_WITH_INFO")
+    fund_managers = query_as_list(db, "SELECT DISTINCT 운용사 FROM ETFS_WITH_INFO")
+    underlying_assets = query_as_list(db, "SELECT DISTINCT 분류체계 FROM ETFS_WITH_INFO")
+
+    participant = []
+    data = query_as_list(db, "SELECT DISTINCT 지정참가회사 FROM ETFS_WITH_INFO")
+    for row in data:
+        cleaned = re.split(r',\s*', row)
+        cleaned = [r.strip() for r in cleaned if r.strip() != '']
+        participant += cleaned
+
+    participant = list(set(participant))
+
+    etf_summary = query_as_list(db, "SELECT 기본정보 FROM ETFS_WITH_INFO")
+    investment_warning = query_as_list(db, "SELECT 투자유의사항 FROM ETFS_WITH_INFO")
+
+    # 임베딩 모델 정의
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+
+    # 임베딩 벡터 저장소 및 검색기 생성 - 58m 47.1s
+    get_retriever(embeddings, etfs_ko + etfs_en, "etfs", data_add=True)
+    get_retriever(embeddings, fund_managers, "fund_managers", data_add=True)
+    get_retriever(embeddings, underlying_assets, "underlying_assets", data_add=True)
+    get_retriever(embeddings, participant, "participant", data_add=True)
+    get_retriever(embeddings, etf_summary, "etf_summary", data_add=True)
+    get_retriever(embeddings, investment_warning, "investment_warning", data_add=True)

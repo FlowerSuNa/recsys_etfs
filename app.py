@@ -1,6 +1,8 @@
 from typing import List
 from dotenv import load_dotenv
-from langfuse.langchain import CallbackHandler
+
+# from langfuse.langchain import CallbackHandler # Langfuse 3.0 이상
+from langfuse.callback import CallbackHandler # Langfuse 3.0 미만
 
 import json
 import gradio as gr
@@ -41,6 +43,7 @@ from testset import TEST01, TEST02, TEST03, TEST04, TEST05
 
 load_dotenv()
 
+# 디비 연결
 db = SQLDatabase.from_uri(
     "sqlite:///etf_database.db",
     include_tables=["ETFS_WITH_INFO"]

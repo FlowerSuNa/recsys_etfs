@@ -7,8 +7,11 @@ wheels/
 *.egg-info
 *.lock
 
+# Test files
+*.ipynb
+
 # DB
-chrom_db/
+chroma_db/
 
 # Virtual environments
 .venv
