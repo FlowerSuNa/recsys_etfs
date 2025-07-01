@@ -6,6 +6,8 @@ from langfuse.callback import CallbackHandler # Langfuse 3.0 미만
 
 import json
 import gradio as gr
+import os
+import zipfile
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -48,6 +50,11 @@ db = SQLDatabase.from_uri(
     "sqlite:///etf_database.db",
     include_tables=["ETFS_WITH_INFO"]
 )
+
+# chroma_db 디렉토리가 없으면 zip 파일을 풀기
+if not os.path.exists("chroma_db"):
+    with zipfile.ZipFile("chroma_db.zip", "r") as zip_ref:
+        zip_ref.extractall("chroma_db")
 
 # Langfuse 콜백 핸들러 생성
 langfuse_handler = CallbackHandler()
@@ -257,7 +264,11 @@ def process_message(message: str) -> str:
 
     try:
         etf_recommendation = graph.invoke(
-            {"question": message}
+            {"question": message},
+            config={
+                "callbacks": [langfuse_handler, performance_handler],
+                "metadata": {"langfuse_tags": ["etf-rag", "graph"]}
+            }
         )
         return etf_recommendation["final_answer"]["markdown"]
     
@@ -283,14 +294,10 @@ demo = gr.ChatInterface(
     투자 성향과 목표에 맞는 ETF를 추천해드립니다.
     
     다음과 같은 정보를 포함하여 질문해주세요:
-    - 투자 목적
-    - 투자 기간
-    - 위험 성향
+    - 투자 목적 / 투자 기간 / 위험 성향
     - 선호/제외 섹터
     - 월 투자 가능 금액
-    
-    예시) "월 100만원 정도를 3년 이상 장기 투자하고 싶고, IT와 헬스케어 섹터를 선호합니다. 
-          보수적인 투자를 선호하며, 담배 관련 기업은 제외하고 싶습니다."
+
     """,
     examples=[TEST01, TEST02, TEST03, TEST04, TEST05],
     type="messages",

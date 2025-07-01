@@ -12,16 +12,12 @@ from kiwipiepy import Kiwi
 from langchain.agents.agent_toolkits import create_retriever_tool
 from langchain.agents import initialize_agent, AgentType
 
+
 def query_as_list(db, query):
     res = db.run(query)
     res = [el for sub in ast.literal_eval(res) for el in sub if el]
     res = [re.sub(r"\b\d+\b", "", string).strip() for string in res]
     return list(set(res))
-
-def bm25_process_func(text):
-    """ 한국어 토크나이저를 사용하여 문장을 토큰화 """
-    kiwi = Kiwi()
-    return [t.form for t in kiwi.tokenize(text)]
 
 def get_retriever(embeddings, data, collection_name, data_add=False):
     """ 검색기 반환 함수 """
@@ -30,31 +26,18 @@ def get_retriever(embeddings, data, collection_name, data_add=False):
         embedding_function=embeddings,
         persist_directory="./chroma_db",
     )
+    kiwi = Kiwi()
     
     if data_add:
         # 데이터를 벡터스토어에 저장
-        chroma_db.add_texts(data)
+        chroma_db.add_texts(data)       
 
     retriever = chroma_db.as_retriever(
         search_kwargs={"k": 10}
     )
-    if data_add:
-        # 토큰화된 데이터 저장
-        tokenized_data = []
-        for row in data:
-            tokens = bm25_process_func(row)
-            tokenized_data.append(tokens)
-
-        with open(f"bm25_tokens/{collection_name}.pkl", "wb") as f:
-            pickle.dump((data, tokenized_data), f)
-
-    else:
-        with open(f"bm25_tokens/{collection_name}.pkl", "rb") as f:
-            data, tokenized_data = pickle.load(f)
-
     bm25_retriever = BM25Retriever.from_texts(
         texts=data,
-        preprocess_func=tokenized_data,
+        preprocess_func=lambda x: [t.form for t in kiwi.tokenize(x)]
     )
     ensemble_retriever = EnsembleRetriever(
         retrievers=[retriever, bm25_retriever], 
@@ -192,7 +175,7 @@ if __name__ == "__main__":
     # 임베딩 모델 정의
     embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
-    # 임베딩 벡터 저장소 및 검색기 생성 - 58m 47.1s
+    # 임베딩 벡터 저장소 및 검색기 생성
     get_retriever(embeddings, etfs_ko + etfs_en, "etfs", data_add=True)
     get_retriever(embeddings, fund_managers, "fund_managers", data_add=True)
     get_retriever(embeddings, underlying_assets, "underlying_assets", data_add=True)

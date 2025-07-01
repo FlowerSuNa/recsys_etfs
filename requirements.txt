@@ -1,8 +1,10 @@
+protobuf==3.20.3
 gradio
 kiwipiepy
-langchain>=0.3.26
-langchain-chroma>=0.2.4
-langchain-community>=0.3.26
+chromadb
+langchain
+langchain-chroma
+langchain-community
 langchain-google-genai
 langchain-openai
 langfuse
